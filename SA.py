@@ -6,72 +6,6 @@ import math
 
 
 
-class MLP_general(nn.Module):
-
-    def __init__(self, Din, intermediate_dim , Dout = None, BN = False, Activation = nn.GELU):
-        super().__init__()
-        if isinstance(intermediate_dim, int):
-            intermediate_dim = (intermediate_dim,)
-        layer = []
-        din = Din
-        if BN:
-            for dout in intermediate_dim:
-                layer.extend([nn.Linear(din, dout),nn.BatchNorm1d(dout), Activation()])
-                din = dout
-        else:
-            
-            for dout in intermediate_dim:
-                layer.extend([nn.Linear(din, dout), Activation()])
-                din = dout
-        if Dout is not None:
-            layer.append(nn.Linear(din, Dout))
-        else :
-            del layer[-1]
-        self.seq = nn.Sequential(*layer)
-    def forward(self, X):
-        out = self.seq(X)
-        return out
-    
-
-
-#-----------------------------------------------------------------------------------------------
-
-class Self_Attention_matrix_nhead(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.embedding = config.embedding
-        self.n_head = config.n_head
-        assert self.embedding % self.n_head==0
-        self.embedding_head = config.embedding // config.n_head
-        self.query_weight_list = nn.ParameterList([torch.nn.Parameter(
-            torch.randn(config.embedding, self.embedding_head )) for h in range(self.n_head)])
-
-        self.key_weight_list = nn.ParameterList([torch.nn.Parameter(
-            torch.randn(config.embedding, self.embedding_head )) for h in range(self.n_head)])
-
-        self.value_weight_list = nn.ParameterList([torch.nn.Parameter(
-            torch.randn(config.embedding, self.embedding_head )) for h in range(self.n_head)])
-     
-
-    def forward(self, input_SA, attn_weight_return = False, drop = True):
-        batch, seq_len, input_dim = input_SA.size()
-        assert self.embedding == input_dim
-        v_buffer = []  
-        for h in range(self.n_head):
-            q = input_SA @ self.query_weight_list[h]
-            k = input_SA @ self.key_weight_list[h]
-            v = input_SA @ self.value_weight_list[h]
-            score = torch.bmm(q, k.transpose(-1,-2))
-            attention_score = torch.softmax(score, -1)/math.sqrt(self.embedding_head)
-            result = torch.bmm(attention_score, v)
-            v_buffer.append(result)
-        result = torch.cat(v_buffer, -1) 
-       
-        return result
-
-
-
-
 #-----------------------------------------------------------------------------------------------
 class gelu(nn.Module):
     def forward(self, x):
@@ -182,6 +116,20 @@ class LM_engine(nn.Module):
             h, *extra = layer(h)
             present_buffer.append(extra[-1])
         out = h
+        return out
+        
+#-----------------------------------------------------------------------------------------------
+
+class LM(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        vocab_size = config.vocab_size
+        self.lm_engine = LM_engine(config)
+        self.project = nn.Linear(config.embedding, vocab_size, bias = False)
+    def forward(self, input_ids):
+        last_layer = self.lm_engine(input_ids)
+       
+        out = self.project(last_layer)
         return out
         
 
